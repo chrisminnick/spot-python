@@ -335,7 +335,7 @@ def lint(ctx, content_file, output_format):
             if output_format == 'json':
                 print(json.dumps(result, indent=2))
             else:
-                from ..utils.style_linter import format_style_report
+                from spot.utils.style_linter import format_style_report
                 
                 file_name = Path(content_file).name
                 report_text = format_style_report(
@@ -373,7 +373,6 @@ def style_check(ctx, content, content_file, output_format):
             # Get content from various sources
             if content == '-':
                 # Read from stdin
-                import sys
                 text_content = sys.stdin.read()
             elif content:
                 text_content = content
@@ -397,7 +396,7 @@ def style_check(ctx, content, content_file, output_format):
                 }
                 print(json.dumps(json_result, indent=2))
             else:
-                from ..utils.style_linter import format_style_report
+                from spot.utils.style_linter import format_style_report
                 
                 file_name = content_file or "content"
                 report_text = format_style_report(
@@ -427,7 +426,7 @@ def style_check(ctx, content, content_file, output_format):
 def style_rules(ctx):
     """Display current style pack rules."""
     try:
-        from ..utils.style_linter import load_style_pack
+        from spot.utils.style_linter import load_style_pack
         
         style_pack = load_style_pack()
         
