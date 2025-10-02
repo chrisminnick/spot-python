@@ -319,6 +319,145 @@ def web(ctx, host, port, reload):
         sys.exit(1)
 
 
+@cli.command()
+@click.argument('content_file', type=click.Path(exists=True))
+@click.option('--format', 'output_format', type=click.Choice(['console', 'json']), default='console', help='Output format')
+@click.pass_context
+def lint(ctx, content_file, output_format):
+    """Lint content against style pack rules."""
+    async def run_lint():
+        spot = ctx.obj['spot']
+        
+        try:
+            with console.status(f"Linting {content_file}..."):
+                result = await spot.lint_file(content_file)
+            
+            if output_format == 'json':
+                print(json.dumps(result, indent=2))
+            else:
+                from ..utils.style_linter import format_style_report
+                
+                file_name = Path(content_file).name
+                report_text = format_style_report(
+                    result["report"], 
+                    result["stylepack"], 
+                    file_name
+                )
+                
+                rprint(report_text)
+                
+                if not result["compliant"]:
+                    rprint(f"\n[yellow]Style compliance score: {result['score']:.2f}/1.00[/yellow]")
+                    sys.exit(1)
+                else:
+                    rprint(f"\n[green]✓ Content is style compliant (score: {result['score']:.2f}/1.00)[/green]")
+        
+        except Exception as e:
+            rprint(f"[red]✗ Linting failed: {e}[/red]")
+            sys.exit(1)
+    
+    asyncio.run(run_lint())
+
+
+@cli.command()
+@click.option('--content', help='Content to check (use - for stdin)')
+@click.option('--file', 'content_file', type=click.Path(exists=True), help='File to check')
+@click.option('--format', 'output_format', type=click.Choice(['console', 'json']), default='console', help='Output format')
+@click.pass_context
+def style_check(ctx, content, content_file, output_format):
+    """Check content against style pack rules."""
+    async def run_style_check():
+        spot = ctx.obj['spot']
+        
+        try:
+            # Get content from various sources
+            if content == '-':
+                # Read from stdin
+                import sys
+                text_content = sys.stdin.read()
+            elif content:
+                text_content = content
+            elif content_file:
+                with open(content_file, 'r', encoding='utf-8') as f:
+                    text_content = f.read()
+            else:
+                rprint("[red]Error: Provide content via --content, --file, or stdin[/red]")
+                sys.exit(1)
+            
+            with console.status("Checking style compliance..."):
+                result = await spot.check_style(text_content)
+            
+            if output_format == 'json':
+                # Convert violations for JSON serialization
+                json_result = {
+                    "violations": result["violations"],
+                    "compliant": result["compliant"],
+                    "score": result["score"],
+                    "report": result["report"]
+                }
+                print(json.dumps(json_result, indent=2))
+            else:
+                from ..utils.style_linter import format_style_report
+                
+                file_name = content_file or "content"
+                report_text = format_style_report(
+                    result["report"], 
+                    result["stylepack"], 
+                    file_name
+                )
+                
+                rprint(report_text)
+                
+                if not result["compliant"]:
+                    rprint(f"\n[yellow]Style compliance score: {result['score']:.2f}/1.00[/yellow]")
+                    rprint(f"[red]Found {len(result['violations'])} violation(s)[/red]")
+                    sys.exit(1)
+                else:
+                    rprint(f"\n[green]✓ Content is style compliant (score: {result['score']:.2f}/1.00)[/green]")
+        
+        except Exception as e:
+            rprint(f"[red]✗ Style check failed: {e}[/red]")
+            sys.exit(1)
+    
+    asyncio.run(run_style_check())
+
+
+@cli.command()
+@click.pass_context
+def style_rules(ctx):
+    """Display current style pack rules."""
+    try:
+        from ..utils.style_linter import load_style_pack
+        
+        style_pack = load_style_pack()
+        
+        # Display rules in a nice table
+        table = Table(title="Style Pack Rules")
+        table.add_column("Rule Type", style="cyan")
+        table.add_column("Value", style="green")
+        
+        table.add_row("Brand Voice", style_pack.get("brand_voice", "Not specified"))
+        table.add_row("Reading Level", style_pack.get("reading_level", "Not specified"))
+        
+        must_use = style_pack.get("must_use", [])
+        if must_use:
+            table.add_row("Required Terms", ", ".join(must_use))
+        else:
+            table.add_row("Required Terms", "None")
+        
+        must_avoid = style_pack.get("must_avoid", [])
+        if must_avoid:
+            table.add_row("Banned Terms", ", ".join(must_avoid))
+        else:
+            table.add_row("Banned Terms", "None")
+        
+        console.print(table)
+        
+    except Exception as e:
+        rprint(f"[red]✗ Failed to load style pack: {e}[/red]")
+        sys.exit(1)
+
+
 def main():
     """Main entry point."""
     # If no command provided, start interactive mode

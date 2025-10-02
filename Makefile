@@ -28,6 +28,15 @@ web: ## Start web server
 interactive: ## Start interactive mode
 	source venv/bin/activate && python -m spot.cli interactive
 
+lint: ## Lint content file (usage: make lint FILE=path/to/file.txt)
+	source venv/bin/activate && python scripts/lint_content.py $(FILE)
+
+style-check: ## Check content against style rules (usage: make style-check CONTENT="text to check")
+	source venv/bin/activate && python -m spot.cli style-check --content "$(CONTENT)"
+
+style-rules: ## Display current style pack rules
+	source venv/bin/activate && python -m spot.cli style-rules
+
 clean: ## Clean up temporary files
 	rm -rf build/ dist/ *.egg-info/
 	rm -rf .pytest_cache/ htmlcov/ .coverage

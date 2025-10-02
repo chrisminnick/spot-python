@@ -4,6 +4,10 @@
 
 A Python implementation of the AI-powered content generation toolkit, focused on reliability, monitoring, and evaluation capabilities with async support and FastAPI web interface.
 
+## About This Project
+
+SPOT was created by Chris Minnick as a demo project for his book, "A Developer's Guide to Integrating Generative AI into Applications" (Wiley Publishing, 2026, ISBN: 9781394373130).
+
 ## � Available Versions
 
 - **Node.js Version** - Full-featured implementation with comprehensive evaluation framework

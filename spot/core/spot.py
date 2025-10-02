@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, Union
 from .config import Config, get_config
 from ..providers.manager import ProviderManager
 from ..utils.logger import get_logger
+from ..utils.style_linter import load_style_pack, lint_style, calculate_style_score
 
 
 class TemplateManager:
@@ -54,8 +55,8 @@ class TemplateManager:
         
         return True
     
-    async def render_template(self, template: Dict[str, Any], variables: Dict[str, Any]) -> str:
-        """Render template with variables."""
+    async def render_template(self, template: Dict[str, Any], variables: Dict[str, Any], style_pack: Optional[Dict[str, Any]] = None) -> str:
+        """Render template with variables and optional style pack integration."""
         # Get the prompt content - handle both old and new formats
         if "prompt" in template:
             prompt = template["prompt"]
@@ -75,6 +76,25 @@ class TemplateManager:
             placeholder = f"{{{key}}}"
             prompt = prompt.replace(placeholder, str(value))
         
+        # Add style pack instructions if provided
+        if style_pack:
+            style_instructions = []
+            
+            if style_pack.get("brand_voice"):
+                style_instructions.append(f"Brand voice: {style_pack['brand_voice']}")
+            
+            if style_pack.get("reading_level"):
+                style_instructions.append(f"Target reading level: {style_pack['reading_level']}")
+            
+            if style_pack.get("must_use"):
+                style_instructions.append(f"Must use these terms: {', '.join(style_pack['must_use'])}")
+            
+            if style_pack.get("must_avoid"):
+                style_instructions.append(f"Avoid these terms: {', '.join(style_pack['must_avoid'])}")
+            
+            if style_instructions:
+                prompt += "\n\nStyle Guidelines:\n" + "\n".join(f"- {instruction}" for instruction in style_instructions)
+        
         return prompt
 
 
@@ -87,18 +107,34 @@ class EvaluationManager:
     
     async def run_evaluation(self, template_name: str, provider_name: str) -> Dict[str, Any]:
         """Run evaluation for a template and provider."""
-        # This would implement the evaluation logic
-        # For now, return a mock result
-        return {
-            "template": template_name,
-            "provider": provider_name,
-            "score": 0.85,
-            "metrics": {
-                "latency": 1.2,
-                "token_efficiency": 0.9,
-                "style_compliance": 0.8
+        try:
+            # This is a simplified evaluation - in a full implementation,
+            # this would run against golden set test cases
+            
+            # Load style pack for evaluation
+            try:
+                style_pack = load_style_pack()
+            except (FileNotFoundError, json.JSONDecodeError):
+                style_pack = {}
+            
+            # Mock evaluation result with style compliance
+            style_compliance_score = 0.8  # This would be calculated from actual test runs
+            
+            return {
+                "template": template_name,
+                "provider": provider_name,
+                "score": 0.85,
+                "metrics": {
+                    "latency": 1.2,
+                    "token_efficiency": 0.9,
+                    "style_compliance": style_compliance_score,
+                    "reading_level_compliant": True,
+                    "style_violations": 0
+                }
             }
-        }
+        except Exception as e:
+            self.logger.error(f"Evaluation failed for {template_name} with {provider_name}: {e}")
+            raise
 
 
 class SPOT:
@@ -130,6 +166,13 @@ class SPOT:
             # Load template
             template_data = await self.template_manager.load_template(template)
             
+            # Load style pack
+            try:
+                style_pack = load_style_pack()
+            except (FileNotFoundError, json.JSONDecodeError) as e:
+                self.logger.warning(f"Could not load style pack: {e}")
+                style_pack = None
+            
             # Prepare input data
             if isinstance(input_data, (str, Path)):
                 # Load from file
@@ -143,8 +186,18 @@ class SPOT:
             else:
                 variables = input_data
             
-            # Render template
-            prompt = await self.template_manager.render_template(template_data, variables)
+            # For templates that expect style pack variables, add them
+            if style_pack and template_data.get("inputs"):
+                template_inputs = template_data["inputs"]
+                if "style_pack_rules" in template_inputs:
+                    variables["style_pack_rules"] = json.dumps(style_pack)
+                if "must_use" in template_inputs:
+                    variables["must_use"] = json.dumps(style_pack.get("must_use", []))
+                if "must_avoid" in template_inputs:
+                    variables["must_avoid"] = json.dumps(style_pack.get("must_avoid", []))
+            
+            # Render template with style pack integration
+            prompt = await self.template_manager.render_template(template_data, variables, style_pack)
             
             # Generate content
             result = await self.provider_manager.generate(
@@ -261,4 +314,96 @@ class SPOT:
         
         except Exception as e:
             self.logger.error(f"Template validation failed: {e}")
+            raise
+    
+    async def check_style(self, content: str) -> Dict[str, Any]:
+        """Check content against style pack rules.
+        
+        Args:
+            content: Text content to analyze
+            
+        Returns:
+            Style checking report with violations and compliance info
+        """
+        try:
+            self.logger.info("Running style check")
+            
+            # Load style pack
+            style_pack = load_style_pack()
+            
+            # Run style analysis
+            report = lint_style(content, style_pack)
+            
+            # Calculate overall score
+            score = calculate_style_score(report)
+            
+            # Create violations list for API compatibility
+            violations = []
+            
+            # Add banned term violations
+            for term in report.get("banned", []):
+                violations.append({
+                    "type": "must_avoid",
+                    "term": term,
+                    "message": f'Content contains prohibited term: "{term}"'
+                })
+            
+            # Add missing required term violations
+            for term in report.get("missing_required", []):
+                violations.append({
+                    "type": "must_use",
+                    "term": term,
+                    "message": f'Content missing required term: "{term}"'
+                })
+            
+            # Add reading level violation
+            if not report.get("reading_level_ok", True):
+                violations.append({
+                    "type": "reading_level",
+                    "term": f"Grade {report['reading_level']}",
+                    "message": f"Reading level {report['reading_level']} outside target range: {style_pack.get('reading_level', 'Grade 8-10')}"
+                })
+            
+            result = {
+                "violations": violations,
+                "compliant": len(violations) == 0,
+                "score": score,
+                "report": report,
+                "stylepack": style_pack
+            }
+            
+            self.logger.info(f"Style check completed: {'compliant' if result['compliant'] else 'violations found'}")
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"Style check failed: {e}")
+            raise
+    
+    async def lint_file(self, file_path: Union[str, Path]) -> Dict[str, Any]:
+        """Lint a file against style pack rules.
+        
+        Args:
+            file_path: Path to file to analyze
+            
+        Returns:
+            Style checking report
+        """
+        try:
+            file_path = Path(file_path)
+            
+            if not file_path.exists():
+                raise FileNotFoundError(f"File not found: {file_path}")
+            
+            # Read file content
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Run style check
+            result = await self.check_style(content)
+            result["file_path"] = str(file_path)
+            
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"File linting failed: {e}")
             raise

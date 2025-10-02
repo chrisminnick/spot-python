@@ -6,6 +6,7 @@ import asyncio
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
+from typing import List
 
 from ..core.spot import SPOT
 from ..core.config import Config
@@ -78,6 +79,30 @@ class EvaluationResponse(BaseModel):
         description="Detailed metrics",
         example={"latency": 1.2, "token_efficiency": 0.9}
     )
+
+
+class StyleCheckRequest(BaseModel):
+    """Request model for style checking."""
+    content: str = Field(
+        description="Content to check for style compliance",
+        example="This revolutionary AI solution will disrupt the market..."
+    )
+
+
+class StyleViolation(BaseModel):
+    """Model for individual style violations."""
+    type: str = Field(description="Type of violation", example="must_avoid")
+    term: str = Field(description="Violating term", example="revolutionary")
+    message: str = Field(description="Violation description", example="Content contains prohibited term: 'revolutionary'")
+
+
+class StyleCheckResponse(BaseModel):
+    """Response model for style checking."""
+    violations: List[StyleViolation] = Field(description="List of style violations")
+    compliant: bool = Field(description="Whether content is style compliant", example=False)
+    score: float = Field(description="Style compliance score (0-1)", example=0.8)
+    report: Dict[str, Any] = Field(description="Detailed linting report")
+    stylepack: Dict[str, Any] = Field(description="Style pack rules used")
 
 
 def create_app(config: Config) -> FastAPI:
@@ -300,5 +325,58 @@ def create_app(config: Config) -> FastAPI:
         
         except Exception as e:
             raise HTTPException(status_code=400, detail=str(e))
+    
+    @app.post("/style/check", response_model=StyleCheckResponse)
+    async def check_style(request: StyleCheckRequest):
+        """Check content against style pack rules."""
+        try:
+            result = await spot.check_style(request.content)
+            
+            # Convert violations to the response format
+            violations = [
+                StyleViolation(**violation) for violation in result["violations"]
+            ]
+            
+            return StyleCheckResponse(
+                violations=violations,
+                compliant=result["compliant"],
+                score=result["score"],
+                report=result["report"],
+                stylepack=result["stylepack"]
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    @app.get("/style/rules")
+    async def get_style_rules():
+        """Get current style pack rules."""
+        try:
+            from ..utils.style_linter import load_style_pack
+            style_pack = load_style_pack()
+            return {"stylepack": style_pack}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    @app.post("/style/lint-file")
+    async def lint_file(file_path: str):
+        """Lint a file against style pack rules."""
+        try:
+            result = await spot.lint_file(file_path)
+            
+            # Convert violations to the response format
+            violations = [
+                StyleViolation(**violation) for violation in result["violations"]
+            ]
+            
+            return {
+                "file_path": result["file_path"],
+                "violations": violations,
+                "compliant": result["compliant"],
+                "score": result["score"],
+                "report": result["report"],
+                "stylepack": result["stylepack"]
+            }
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
     
     return app
