@@ -4,6 +4,11 @@
 
 A Python implementation of the AI-powered content generation toolkit, focused on reliability, monitoring, and evaluation capabilities with async support and FastAPI web interface.
 
+## � Available Versions
+
+- **Node.js Version** - Full-featured implementation with comprehensive evaluation framework
+- **Python Version** (this repository) - [spot-python](https://github.com/chrisminnick/spot-python) - Python implementation with the same core functionality
+
 ## 🚀 Features
 
 - **Multi-Provider AI Support** - OpenAI, Anthropic, Gemini with automatic failover
